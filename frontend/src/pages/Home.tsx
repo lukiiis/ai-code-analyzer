@@ -2,20 +2,23 @@ import { useState } from "react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import { AxiosError } from "axios";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, Code, Laptop, Loader2 } from "lucide-react";
+import { ArrowUpRight, ChevronRight, Code, Laptop, Loader2, History, CalendarDays } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AnalyzerData, AnalyzerResponse, ApiErrorResponse } from "@/types/aiTypes";
-import { useAnalyzeCode } from "./homeFunctions";
+import { AnalyzerData, AnalyzerResponse, ApiErrorResponse } from "@/types/analyzerTypes";
+import { useAnalyzeCode, useGetHistory } from "./homeFunctions";
 import remarkGfm from 'remark-gfm';
 import ReactMarkdown from 'react-markdown';
 
 const Home = () => {
-    const [response, setResponse] = useState<string>("");
+    const [response, setResponse] = useState<AnalyzerResponse | null>(null);
     const [activeTab, setActiveTab] = useState<string>("code");
+    const [selectedHistoryItem, setSelectedHistoryItem] = useState<string | null>(null);
+
+    const { data: historyData, isLoading: historyLoading, refetch: refetchHistory } = useGetHistory();
 
     const analyzerForm = useForm<AnalyzerData>({
         defaultValues: {
@@ -38,8 +41,12 @@ const Home = () => {
                 toast.success("Success", {
                     description: "Successfully generated feedback",
                 });
-                setResponse(data.message);
+                setResponse({
+                    message: data.message,
+                    timestamp: data.timestamp
+                });
                 setActiveTab("analysis");
+                refetchHistory();
                 analyzerForm.reset();
             },
             onError: (error: AxiosError<ApiErrorResponse>) => {
@@ -48,6 +55,15 @@ const Home = () => {
                 });
             },
         });
+    };
+
+    const loadHistoryItem = (prompt: string, response: string, timestamp: string) => {
+        analyzerForm.setValue("code", prompt);
+        setResponse({
+            message: response,
+            timestamp: timestamp,
+        });
+        setSelectedHistoryItem(prompt);
     };
 
     return (
@@ -84,15 +100,17 @@ const Home = () => {
                     </CardHeader>
                     <CardContent className="pt-6">
                         <Tabs defaultValue="code" value={activeTab} onValueChange={setActiveTab} className="w-full">
-                            <TabsList className="grid grid-cols-2 mb-4">
-                                <TabsTrigger value="code" className="data-[state=active]:bg-indigo-500/20">
+                            <TabsList className="flex flex-wrap h-full">
+                                <TabsTrigger value="code" className="data-[state=active]:bg-indigo-500/20 w-36">
                                     <Laptop className="h-4 w-4 mr-2" /> Code Input
                                 </TabsTrigger>
-                                <TabsTrigger value="analysis" className="data-[state=active]:bg-indigo-500/20">
+                                <TabsTrigger value="analysis" className="data-[state=active]:bg-indigo-500/20 w-36">
                                     <ChevronRight className="h-4 w-4 mr-2" /> Analysis Result
                                 </TabsTrigger>
+                                <TabsTrigger value="history" className="data-[state=active]:bg-indigo-500/20 w-36">
+                                    <History className="h-4 w-4 mr-2" /> History
+                                </TabsTrigger>
                             </TabsList>
-
                             <TabsContent value="code" className="space-y-4">
                                 <form onSubmit={analyzerForm.handleSubmit(onSubmit)}>
                                     <Textarea
@@ -120,7 +138,6 @@ const Home = () => {
                                     </div>
                                 </form>
                             </TabsContent>
-
                             <TabsContent value="analysis">
                                 <AnimatePresence mode="wait">
                                     {response ? (
@@ -143,7 +160,7 @@ const Home = () => {
                                                                 size="sm"
                                                                 variant="ghost"
                                                                 onClick={() => {
-                                                                    navigator.clipboard.writeText(response);
+                                                                    navigator.clipboard.writeText(response.message);
                                                                     toast.success("Copied to clipboard");
                                                                 }}
                                                                 className="text-xs h-8 px-2 text-slate-400 hover:text-indigo-300 hover:bg-slate-800/60"
@@ -167,14 +184,14 @@ const Home = () => {
                                                             <ReactMarkdown
                                                                 remarkPlugins={[remarkGfm]}
                                                             >
-                                                                {response}
+                                                                {response.message}
                                                             </ReactMarkdown>
                                                         </div>
                                                     </div>
                                                 </CardContent>
                                                 <CardFooter className="flex justify-between border-t border-slate-800 pt-3 pb-2">
                                                     <div className="text-xs text-slate-500">
-                                                        {new Date().toLocaleString()}
+                                                        {new Date(response.timestamp || Date.now()).toLocaleString()}
                                                     </div>
                                                     <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                                                         <Button
@@ -202,6 +219,82 @@ const Home = () => {
                                             </p>
                                         </motion.div>
                                     )}
+                                </AnimatePresence>
+                            </TabsContent>
+                            <TabsContent value="history">
+                                <AnimatePresence mode="wait">
+                                    <motion.div
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        exit={{ opacity: 0 }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        <Card className="border border-slate-800 bg-slate-950/50 shadow-lg">
+                                            <CardHeader className="pb-2 border-b border-slate-800">
+                                                <div className="flex items-center justify-between">
+                                                    <CardTitle className="text-lg text-indigo-300 flex items-center">
+                                                        <History className="h-5 w-5 mr-2 text-indigo-400" />
+                                                        Analysis History
+                                                    </CardTitle>
+                                                </div>
+                                            </CardHeader>
+                                            <CardContent className="p-0">
+                                                <div className="rounded-md bg-slate-900/60 backdrop-blur-sm overflow-hidden">
+                                                    {historyLoading ? (
+                                                        <div className="flex items-center justify-center p-8">
+                                                            <Loader2 className="h-8 w-8 text-indigo-400 animate-spin" />
+                                                        </div>
+                                                    ) : historyData && historyData.length > 0 ? (
+                                                        <div className="divide-y divide-slate-800">
+                                                            {historyData.map((item, index) => (
+                                                                <div
+                                                                    key={item.id || index}
+                                                                    className={`p-4 transition-colors cursor-pointer ${selectedHistoryItem === item.prompt ? 'bg-slate-800/40' : ''}`}
+                                                                    onClick={() => loadHistoryItem(item.prompt, item.response, item.timestamp)}
+                                                                >
+                                                                    <div className="flex justify-between items-start mb-2">
+                                                                        <div className="flex items-center">
+                                                                            <Code className="h-4 w-4 text-indigo-400 mr-2" />
+                                                                            <span className="font-medium text-slate-300">Analysis #{historyData.length - index}</span>
+                                                                        </div>
+                                                                        <div className="flex items-center text-xs text-slate-500">
+                                                                            <CalendarDays className="h-3 w-3 mr-1" />
+                                                                            {new Date(item.timestamp || Date.now()).toLocaleString()}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="line-clamp-2 text-xs text-slate-400 font-mono bg-slate-800/30 p-2 rounded border">
+                                                                        {item.prompt}
+                                                                    </div>
+                                                                    <div className="flex justify-end mt-2">
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="sm"
+                                                                            className="h-7 text-xs text-indigo-300 hover:bg-slate-800/60"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                loadHistoryItem(item.prompt, item.response, item.timestamp);
+                                                                                setActiveTab("analysis");
+                                                                            }}
+                                                                        >
+                                                                            <ArrowUpRight className="h-3 w-3 mr-1" />
+                                                                            View Analysis
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex flex-col items-center justify-center p-10 text-center">
+                                                            <History className="h-12 w-12 text-slate-600 mb-3" />
+                                                            <p className="text-slate-500 max-w-md">
+                                                                No analysis history yet. Submit some code to build your history.
+                                                            </p>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    </motion.div>
                                 </AnimatePresence>
                             </TabsContent>
                         </Tabs>
